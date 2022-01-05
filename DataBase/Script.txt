@@ -1,0 +1,150 @@
+--Alta zapato
+create table Alta_zapato(
+	id_tipo_zapato varchar(10),
+	nombre varchar(35),
+	marca varchar(20),
+	tipo varchar(20),
+	primary key(id_tipo_zapato)
+);
+
+--Tabla zapato
+create table zapato(
+	id_zapato varchar(10),
+	id_tipo_zapato varchar(10),
+	folio_cargamento integer,
+	cantidad integer,
+	tamaño integer,
+	precio decimal(7,2),
+	primary key(id_zapato)
+);
+
+--Tabla cargamento
+create table cargamento(
+	fecha timestamp,
+	folio serial,
+	provedor varchar(30),
+	precio_nomina decimal(9,2),
+	primary key(folio)
+);
+
+--Subtabla cargamento para zapatos
+create table Contenido_cargamento(
+	id_zapato varchar(10),
+	folio_de_cargamento integer,
+	cantidad integer,
+	costo_pza decimal(7,2),
+	monto_cargamento decimal(9,2),
+	primary key(id_zapato, folio_de_cargamento)
+);
+
+--Tabla para ventas
+create table ventas(
+	folio serial,
+	fecha_de_venta timestamp,
+	total decimal(8,2),
+	id_empleado varchar(10)
+);
+
+--Subtabla ventas
+create table cantidad_venta(
+	folio_venta integer,
+	id_zapato varchar(10),
+	cantidad integer,
+	monto decimal(7,2),
+	total decimal(8,2),
+	primary key (folio_venta, id_zapato)
+);
+
+--Tabla empleado
+create table empleado(
+	id_empleado varchar(10),
+	fecha_ingreso date,
+	sueldo_base decimal(7,2),
+	comision decimal(6,2),
+	sueldo_final decimal(7,2),
+	nombre varchar(40),
+	primary key(id_empleado)
+);
+
+-------------------------------------
+--*****Foreign Keys******
+
+alter table zapato
+add constraint id_tipo
+foreign key (id_tipo_zapato)
+references Alta_zapato(id_tipo_zapato);
+
+alter table zapato
+add constraint folio_cargamento
+foreign key (folio_cargamento)
+references cargamento(folio);
+
+alter table Contenido_cargamento
+add constraint FK_folio_de_cargamento
+foreign key (folio_de_cargamento)
+references cargamento(folio);
+
+alter table Contenido_cargamento
+add constraint FK_id_zapato
+foreign key (id_zapato)
+references zapato(id_zapato);
+
+alter table ventas
+add constraint FK_idEmpleado_ventas
+foreign key (id_empleado)
+references empleado(id_empleado);
+
+alter table cantidad_venta
+add constraint FK_idZapato_cantidadVenta
+foreign key (id_zapato)
+references zapato(id_zapato);
+
+-------------------------------------
+--*****Triggers******
+
+CREATE FUNCTION insert_venta() RETURNS TRIGGER as $$
+	begin
+		update zapato set cantidad = (select cantidad from zapato where id_zapato = new.id_zapato) - new.cantidad
+		where id_zapato = new.id_zapato;
+		RETURN NEW;
+	END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER add_venta AFTER INSERT
+ON cantidad_venta FOR EACH ROW EXECUTE PROCEDURE insert_venta();
+
+create function return_to_Almacen() RETURNS TRIGGER as $$
+	begin
+		update zapato set cantidad = (select cantidad from zapato where id_zapato = old.id_zapato) + old.cantidad
+		where id_zapato = old.id_zapato;
+		RETURN OLD;
+	END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER restore_Almacen_product before Delete
+ON cantidad_venta FOR EACH ROW EXECUTE PROCEDURE return_to_Almacen();
+
+
+CREATE FUNCTION update_addComision() RETURNS TRIGGER as $$
+	begin
+		update empleado set comision = comision + (select total*0.02 from ventas where id_empleado = new.id_empleado)
+		where id_empleado = new.id_empleado;
+		update empleado set sueldo_final = sueldo_base+comision where id_empleado = new.id_empleado;
+		RETURN new;
+	END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER add_comision_empleado AFTER UPDATE
+ON ventas FOR EACH ROW EXECUTE PROCEDURE update_addComision();
+
+CREATE FUNCTION update_subtractComision() RETURNS TRIGGER as $$
+	begin
+		update empleado set comision = comision - (select total*0.02 from ventas where id_empleado = old.id_empleado)
+		where id_empleado = old.id_empleado;
+		update empleado set sueldo_final = sueldo_base+comision where id_empleado = old.id_empleado;
+		RETURN old;
+	END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER subtract_comision_empleado BEFORE UPDATE
+ON ventas FOR EACH ROW EXECUTE PROCEDURE update_subtractComision();
